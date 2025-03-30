@@ -1,6 +1,0 @@
-# config
-
-82.180.144.36
-
- git config --global user.email "chetanbudathoki@outlook.com"
-  git config --global user.name "Chetan Budathoki"

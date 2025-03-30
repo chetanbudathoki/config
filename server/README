@@ -1,0 +1,16 @@
+# config
+
+chmod +x docker.sh
+./docker.sh
+
+sudo ufw allow 80
+sudo ufw allow 443
+sudo ufw allow 22
+sudo ufw allow 81
+
+sudo ufw status
+
+82.180.144.36:81
+
+
+
