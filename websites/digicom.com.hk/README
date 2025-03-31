@@ -1,0 +1,10 @@
+sshpass -p "HeroBudathoki@3579" rsync -avz -e "ssh -o StrictHostKeyChecking=no" ./digicomapi.tar root@194.61.31.136:/home/backup
+docker build -t digicomapi .
+docker run -d -p 8888:8888 --name api.digicom.com.hk digicomapi
+docker load -i /home/backup/digicomapi.tar
+
+aaPanel Internal Address: https://194.61.31.136:11000/8a3ebd13
+username: g3ijy5ju
+password: 4890c137
+
+81, 8080, 8443

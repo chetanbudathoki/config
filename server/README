@@ -1,16 +1,36 @@
 # config
-
 chmod +x docker.sh
 ./docker.sh
 
-sudo ufw allow 80
-sudo ufw allow 443
-sudo ufw allow 22
-sudo ufw allow 81
+82.180.144.36
 
-sudo ufw status
+sudo ufw status verbose
 
-82.180.144.36:81
+#series 0 for defult setups
+sudo ufw allow 22   #ssh
+sudo ufw allow 80   #HTTP
+sudo ufw allow 81   #NGINX proxy manager
+sudo ufw allow 443  #HTTPS
+
+#series 1000 for server configurations
+sudo ufw allow 1001 #see VPS status
+
+#series 5000 for Raunak projects
+sudo ufw allow 5000 #yapcord.xyz
+sudo ufw allow 5001 #yapcord.xyz bots
+
+#series 8000 for wordpress projeccts
+sudo ufw allow 8001 #nyanokhabar.com
+
+#series 9000 for docker projects 
+sudo ufw allow 8002 #youthcongressnepal.org supposed to be 9001 but for now 8002
+
+
+
+
+
+
+
 
 
 

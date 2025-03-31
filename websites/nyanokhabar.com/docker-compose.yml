@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  wordpress1:
+    image: wordpress:latest
+    container_name: wordpress1
+    ports:
+      - "8001:80"
+    environment:
+      WORDPRESS_DB_HOST: db1:3306
+      WORDPRESS_DB_NAME: nyanokhabar
+      WORDPRESS_DB_USER: cb
+      WORDPRESS_DB_PASSWORD: NyanoKhabar@3579
+    depends_on:
+      - db1
+    restart: always
+
+  db1:
+    image: mysql:5.7
+    container_name: mysql1
+    environment:
+      MYSQL_ROOT_PASSWORD: NyanoKhabar@3579
+      MYSQL_DATABASE: nyanokhabar
+      MYSQL_USER: cb
+      MYSQL_PASSWORD: NyanoKhabar@3579
+    volumes:
+      - db1_data:/var/lib/mysql
+    restart: always
+
+volumes:
+  db1_data:
