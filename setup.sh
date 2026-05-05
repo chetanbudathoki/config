@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# PRE-SETUP (Run this manually first):
+# apt-get update && apt-get install -y git micro
+# git clone https://github.com/chetanbudathoki/config.git && cd config
+# micro setup.sh
+
 # setup.sh: Complete VPS Bootstrap (User, SSH, Docker, Security)
 # Usage:
 #   chmod +x setup.sh
@@ -49,7 +54,7 @@ TIMEZONE="UTC"
 # 'openssh-server' to manage remote access.
 echo "📦 Updating package registry and installing essentials..."
 apt-get update -y
-apt-get install -y sudo curl git gnupg ca-certificates openssh-server ufw bash-completion
+apt-get install -y sudo curl git micro gnupg ca-certificates openssh-server ufw bash-completion
 
 # 2. Create the Service User (Passwordless/SSH-Only)
 # We use -m to create a home directory and -s to set Bash as the default shell.
