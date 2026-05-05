@@ -10,15 +10,25 @@ set -e # Exit on error
 
 echo "🚀 Starting Complete VPS Bootstrap..."
 
-# --- DATA SECTION: UPDATE YOUR KEYS HERE ---
-# Add your public keys here (one per line)
+# --- CONFIGURATION: UPDATE THESE DETAILS FIRST ---
+# 1. Your Public SSH Keys (Required)
 SSH_PUBLIC_KEYS="
 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOm6A9331n/I9Z44FfGvV3fGZ... user@example.com
 "
-# -------------------------------------------
 
-USER_NAME="ss"
+# 2. System Username
+USER_NAME="cb"
+
+# 3. SSH Port (Standard is 22)
 SSH_PORT=22
+
+# 4. Failsafe: Sync keys to root? (Recommended)
+# If true, you can log in as root ONLY with an SSH key.
+SYNC_KEYS_TO_ROOT=true
+
+# Note: Password-based login will be DISABLED for security. 
+# Both 'root' and '$USER_NAME' will be SSH-key ONLY.
+# -------------------------------------------------
 
 # 1. Update Package Registry & Install Essentials
 echo "📦 Updating package registry and installing essentials..."
@@ -46,29 +56,39 @@ echo "$SSH_PUBLIC_KEYS" > "$SSH_DIR/authorized_keys"
 chown -R "$USER_NAME:$USER_NAME" "$SSH_DIR"
 chmod 700 "$SSH_DIR"
 chmod 600 "$SSH_DIR/authorized_keys"
-echo "✅ SSH keys imported."
+echo "✅ SSH keys imported for '$USER_NAME'."
 
-# 4. Add 'ss' to Sudoers (Passwordless Sudo)
+# 4. Failsafe: Sync Keys to Root
+if [ "$SYNC_KEYS_TO_ROOT" = true ]; then
+    echo "🔑 Syncing SSH keys to root user for failsafe..."
+    mkdir -p /root/.ssh
+    echo "$SSH_PUBLIC_KEYS" > /root/.ssh/authorized_keys
+    chmod 700 /root/.ssh
+    chmod 600 /root/.ssh/authorized_keys
+    echo "✅ SSH keys imported for root."
+fi
+
+# 5. Add 'ss' to Sudoers (Passwordless Sudo)
 echo "🔑 Granting sudo privileges to '$USER_NAME'..."
 usermod -aG sudo "$USER_NAME"
 echo "$USER_NAME ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$USER_NAME"
 
-# 5. Harden SSH Configuration
+# 6. Harden SSH Configuration
 echo "🛡️ Hardening SSH configuration..."
 cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
 
-# Disable Password Auth, Disable Root Login, Set Port
+# Disable Password Auth, Set Root to Key-Only, Set Port
 sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
 sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
-sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
-sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+sed -i 's/PermitRootLogin .*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
 
 # Ensure SSH Port is set (Explicitly 22)
 if ! grep -q "^Port $SSH_PORT" /etc/ssh/sshd_config; then
     echo "Port $SSH_PORT" >> /etc/ssh/sshd_config
 fi
 
-# 6. Install Docker
+# 7. Install Docker
 echo "🐳 Installing Docker Engine..."
 # Remove old versions
 for pkg in docker.io docker-doc docker-compose podman-docker containerd runc; do 
@@ -92,7 +112,7 @@ apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin do
 groupadd -f docker
 usermod -aG docker "$USER_NAME"
 
-# 7. Configure Firewall (UFW)
+# 8. Configure Firewall (UFW)
 echo "🛡️ Configuring Firewall..."
 # First, ensure we don't lock ourselves out
 ufw allow ssh || true
@@ -106,7 +126,7 @@ ufw default allow outgoing
 echo "🚀 Enabling Firewall..."
 ufw --force enable
 
-# 8. Restart Services
+# 9. Restart Services
 echo "🔄 Restarting SSH Service..."
 systemctl restart ssh
 
