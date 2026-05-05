@@ -1,14 +1,24 @@
 #!/bin/bash
 
-# PRE-SETUP (Run this manually first):
-# apt-get update && apt-get install -y git micro
+# PRE-SETUP (Run this manually first on a fresh VPS):
+# apt-get update && apt-get install -y git
 # git clone https://github.com/chetanbudathoki/config.git && cd config
-# micro setup.sh
+
+# --- HOW TO GENERATE YOUR SSH KEYS ---
+# Run these commands on your LOCAL computer (not the VPS):
+#
+# WINDOWS (PowerShell/CMD) or MAC/LINUX:
+# 1. ssh-keygen -t ed25519 -C "your_email@example.com"
+# 2. Press Enter to use the default path.
+# 3. Use 'cat ~/.ssh/id_ed25519.pub' (Mac/Linux) or open the file in Notepad (Windows)
+#    located at C:\Users\YourName\.ssh\id_ed25519.pub
+# 4. Copy the entire string and paste it into the SSH_PUBLIC_KEYS variable below.
+# -------------------------------------
 
 # setup.sh: Complete VPS Bootstrap (User, SSH, Docker, Security)
 # Usage:
 #   chmod +x setup.sh
-#   sudo ./setup.sh
+#   ./setup.sh
 #
 # This script is designed to transform a fresh Debian/Ubuntu VPS into a 
 # hardened, production-ready environment with Docker and a dedicated user.
@@ -21,12 +31,12 @@ echo "🚀 Starting Complete VPS Bootstrap..."
 # 1. Your Public SSH Keys (Required)
 # Paste your public key string here (starting with ssh-ed25519 or ssh-rsa).
 SSH_PUBLIC_KEYS="
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOm6A9331n/I9Z44FfGvV3fGZ... user@example.com
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILP955M/UahnRbnsKUziEdMip2v5AejqPLsPysWB3ob+ sawarisadhan@gmail.com
 "
 
 # 2. System Username
 # The primary non-root user that will be used for daily operations and Docker.
-USER_NAME="cb"
+USER_NAME="ss"
 
 # 3. SSH Port
 # 22 is the standard default. Change if you use a custom port.
@@ -54,7 +64,7 @@ TIMEZONE="UTC"
 # 'openssh-server' to manage remote access.
 echo "📦 Updating package registry and installing essentials..."
 apt-get update -y
-apt-get install -y sudo curl git micro gnupg ca-certificates openssh-server ufw bash-completion
+apt-get install -y sudo curl git gnupg ca-certificates openssh-server ufw bash-completion
 
 # 2. Create the Service User (Passwordless/SSH-Only)
 # We use -m to create a home directory and -s to set Bash as the default shell.
@@ -133,7 +143,7 @@ done
 
 # Setup Docker APT repository using keyrings
 install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg
 chmod a+r /etc/apt/keyrings/docker.gpg
 
 echo \
@@ -182,7 +192,7 @@ systemctl restart ssh
 
 # 10. Infrastructure Configuration (Swap & Timezone)
 echo "🌐 Configuring Timezone to $TIMEZONE..."
-timedatectl set-timezone "$TIMEZONE" || echo "⚠️ Could not set timezone."
+timedatectl set-timezone "$TIMEZONE" || echo "⚠️ Could not set timezone (Check if this is a container)."
 
 if [ -n "$SWAP_SIZE" ] && [ "$SWAP_SIZE" != "0" ]; then
     if [ -f /swapfile ]; then
@@ -192,7 +202,7 @@ if [ -n "$SWAP_SIZE" ] && [ "$SWAP_SIZE" != "0" ]; then
         fallocate -l "$SWAP_SIZE" /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=$(echo $SWAP_SIZE | sed 's/G//' | awk '{print $1 * 1024}')
         chmod 600 /swapfile
         mkswap /swapfile
-        swapon /swapfile
+        swapon /swapfile || echo "⚠️ Could not activate swap (Check if this is a container)."
         echo '/swapfile none swap sw 0 0' >> /etc/fstab
         # Optimize swappiness (10 is good for servers)
         sysctl vm.swappiness=10
