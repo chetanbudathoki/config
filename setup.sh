@@ -27,36 +27,61 @@ set -e # Exit immediately if a command exits with a non-zero status.
 
 echo "🚀 Starting Complete VPS Bootstrap..."
 
-# --- CONFIGURATION: UPDATE THESE DETAILS FIRST ---
-# 1. Your Public SSH Keys (Required)
-# Paste your public key string here (starting with ssh-ed25519 or ssh-rsa).
-SSH_PUBLIC_KEYS="
-ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILP955M/UahnRbnsKUziEdMip2v5AejqPLsPysWB3ob+ sawarisadhan@gmail.com
-"
+# --- CONFIGURATION ---
+# The script loads credentials and settings from 'config.yml'.
 
-# 2. System Username
-# The primary non-root user that will be used for daily operations and Docker.
-USER_NAME="ss"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-# 3. SSH Port
-# 22 is the standard default. Change if you use a custom port.
-SSH_PORT=22
+if [ -f "$SCRIPT_DIR/config.yml" ]; then
+    CONFIG_FILE="$SCRIPT_DIR/config.yml"
+    echo "📖 Found config.yml. Loading configurations..."
+else
+    echo "❌ ERROR: config.yml was not found!"
+    echo "Please create 'config.yml' in the same directory."
+    exit 1
+fi
 
-# 4. Failsafe: Sync keys to root? (Highly Recommended)
-# If true, your SSH key will also be added to the root user.
-# This allows you to log in as root using your key even after disabling passwords.
-SYNC_KEYS_TO_ROOT=true
+# Helper function to read simple YAML key-value pairs
+get_yaml_value() {
+    local key="$1"
+    local default_val="$2"
+    if [ -f "$CONFIG_FILE" ]; then
+        local val
+        val=$(grep -E "^${key}:" "$CONFIG_FILE" | sed -E "s/^${key}:[[:space:]]*//; s/^[\"']//; s/[\"']$//")
+        if [ -n "$val" ]; then
+            echo "$val"
+            return 0
+        fi
+    fi
+    echo "$default_val"
+}
 
-# 5. Security Extras: Auto-updates & Brute-force protection
-ENABLE_SECURITY_EXTRAS=true
+# Load required settings
+USER_NAME=$(get_yaml_value "username")
+SSH_PUBLIC_KEYS=$(get_yaml_value "ssh_public_key")
 
-# 6. Infrastructure Extras: Swap & Timezone
-# Swap is virtual RAM. 2G is usually perfect for 1GB-2GB RAM servers.
-SWAP_SIZE="2G"
-TIMEZONE="UTC"
+if [ -z "$USER_NAME" ] || [ -z "$SSH_PUBLIC_KEYS" ]; then
+    echo "❌ ERROR: 'username' and 'ssh_public_key' must be specified in the configuration file!"
+    exit 1
+fi
 
-# Note: Password-based login will be DISABLED for security. 
-# Both 'root' and '$USER_NAME' will be SSH-key ONLY.
+# Prevent running with template placeholders
+if [ "$USER_NAME" = "your_username" ] || [ "$USER_NAME" = "username" ] || \
+   [[ "$SSH_PUBLIC_KEYS" == *"user@example.com"* ]] || [[ "$SSH_PUBLIC_KEYS" == *"AAAA..."* ]]; then
+    echo "⚠️  WARNING: Detected example template credentials from configuration."
+    echo "Please update 'config.yml' with your actual username and SSH key before running."
+    echo "Exiting for safety."
+    exit 1
+fi
+
+# Load optional settings (with safe defaults)
+SSH_PORT=$(get_yaml_value "ssh_port" "22")
+SYNC_KEYS_TO_ROOT=$(get_yaml_value "sync_keys_to_root" "true")
+ENABLE_SECURITY_EXTRAS=$(get_yaml_value "enable_security_extras" "true")
+SWAP_SIZE=$(get_yaml_value "swap_size" "2G")
+TIMEZONE=$(get_yaml_value "timezone" "UTC")
+
+echo "✅ Configuration successfully loaded from $(basename "$CONFIG_FILE")."
 # -------------------------------------------------
 
 # 1. Update Package Registry & Install Essentials
@@ -75,7 +100,8 @@ else
     echo "👤 Creating user '$USER_NAME'..."
     useradd -m -s /bin/bash "$USER_NAME"
     passwd -l "$USER_NAME" 
-    echo "✅ User '$USER_NAME' created with locked password (SSH Key Only)."
+    chmod 700 "/home/$USER_NAME" # Tight home directory privacy
+    echo "✅ User '$USER_NAME' created with locked password and private home directory (SSH Key Only)."
 fi
 
 # 3. Configure SSH Keys for the Service User
@@ -118,6 +144,12 @@ echo "$USER_NAME ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/$USER_NAME"
 echo "🛡️ Hardening SSH configuration..."
 cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
 
+# Failsafe: Remove cloud-init overrides in sshd_config.d to prevent password auth leaks
+if [ -d /etc/ssh/sshd_config.d ]; then
+    echo "🧹 Clearing sshd_config.d override snippets to prevent config leaks..."
+    rm -f /etc/ssh/sshd_config.d/*.conf || true
+fi
+
 # Update sshd_config settings using 'sed'
 sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
 sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
@@ -127,6 +159,25 @@ sed -i 's/PermitRootLogin .*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_c
 # Set SSH Timeouts: Automatically disconnect idle sessions after 5 minutes.
 sed -i 's/#ClientAliveInterval 0/ClientAliveInterval 300/' /etc/ssh/sshd_config
 sed -i 's/#ClientAliveCountMax 3/ClientAliveCountMax 2/' /etc/ssh/sshd_config
+
+# Tight SSH Hardening: Disable X11 Forwarding, limit retries, and block agent forwarding
+sed -i 's/#X11Forwarding yes/X11Forwarding no/' /etc/ssh/sshd_config
+sed -i 's/X11Forwarding yes/X11Forwarding no/' /etc/ssh/sshd_config
+
+if ! grep -q "^MaxAuthTries" /etc/ssh/sshd_config; then
+    echo "MaxAuthTries 2" >> /etc/ssh/sshd_config
+fi
+if ! grep -q "^AllowAgentForwarding" /etc/ssh/sshd_config; then
+    echo "AllowAgentForwarding no" >> /etc/ssh/sshd_config
+fi
+
+# Restrict SSH entry exclusively to authorized users
+ALLOWED_USERS="$USER_NAME"
+if [ "$SYNC_KEYS_TO_ROOT" = true ]; then
+    ALLOWED_USERS="$USER_NAME root"
+fi
+sed -i '/^AllowUsers/d' /etc/ssh/sshd_config
+echo "AllowUsers $ALLOWED_USERS" >> /etc/ssh/sshd_config
 
 # Ensure the custom SSH Port is explicitly defined.
 if ! grep -q "^Port $SSH_PORT" /etc/ssh/sshd_config; then
@@ -166,7 +217,11 @@ cat <<EOF > /etc/docker/daemon.json
   }
 }
 EOF
-systemctl restart docker
+systemctl daemon-reload
+systemctl enable docker || true
+systemctl enable containerd || true
+systemctl restart docker || true
+systemctl restart containerd || true
 
 # Add our service user to the 'docker' group to allow running docker without 'sudo'.
 groupadd -f docker
@@ -174,9 +229,9 @@ usermod -aG docker "$USER_NAME"
 
 # 8. Configure Firewall (UFW)
 # We allow SSH first to prevent accidental lockout, then set default 'deny' for all other traffic.
-echo "🛡️ Configuring Firewall..."
-ufw allow ssh || true
-ufw allow $SSH_PORT/tcp
+echo "🛡️ Configuring Firewall (with SSH rate-limiting)..."
+ufw limit ssh/tcp || true
+ufw limit $SSH_PORT/tcp
 ufw allow 80/tcp # HTTP
 ufw allow 443/tcp # HTTPS
 
@@ -190,7 +245,7 @@ ufw --force enable
 echo "🔄 Restarting SSH Service..."
 systemctl restart ssh
 
-# 10. Infrastructure Configuration (Swap & Timezone)
+# 10. Infrastructure & Performance Optimization (Swap, Timezone, Limits)
 echo "🌐 Configuring Timezone to $TIMEZONE..."
 timedatectl set-timezone "$TIMEZONE" || echo "⚠️ Could not set timezone (Check if this is a container)."
 
@@ -211,6 +266,31 @@ if [ -n "$SWAP_SIZE" ] && [ "$SWAP_SIZE" != "0" ]; then
     fi
 fi
 
+# Performance Optimization: Increase Virtual Memory Mapping Limits (Database Optimization)
+echo "🧠 Optimizing Virtual Memory limits for production databases..."
+sysctl vm.max_map_count=262144 || true
+echo "vm.max_map_count=262144" >> /etc/sysctl.conf
+sysctl vm.vfs_cache_pressure=50 || true
+echo "vm.vfs_cache_pressure=50" >> /etc/sysctl.conf
+
+# Performance Optimization: Increase System Open File limits (nofile) to prevent container locks
+echo "📜 Optimizing system file limits (nofile)..."
+cat <<EOF >> /etc/security/limits.conf
+* soft nofile 65535
+* hard nofile 65535
+root soft nofile 65535
+root hard nofile 65535
+EOF
+
+# Ensure systemd service configurations inherit file limit optimizations
+mkdir -p /etc/systemd/system/docker.service.d
+cat <<EOF > /etc/systemd/system/docker.service.d/limits.conf
+[Service]
+LimitNOFILE=65535
+EOF
+systemctl daemon-reload || true
+echo "✅ Infrastructure and performance parameters optimized."
+
 # 11. Security Extras (Optional)
 # This includes Fail2Ban for auto-banning and Unattended-Upgrades for security patches.
 if [ "$ENABLE_SECURITY_EXTRAS" = true ]; then
@@ -227,10 +307,37 @@ bantime = 1h
 EOF
     systemctl restart fail2ban
     
-    # Configure Unattended Upgrades to automatically install security patches daily.
-    echo 'Unattended-Upgrade::Allowed-Origins { "${distro_id}:${distro_codename}-security"; };' > /etc/apt/apt.conf.d/50unattended-upgrades
-    echo 'APT::Periodic::Update-Package-Lists "1";' > /etc/apt/apt.conf.d/20auto-upgrades
-    echo 'APT::Periodic::Unattended-Upgrade "1";' >> /etc/apt/apt.conf.d/20auto-upgrades
+    # Configure Unattended Upgrades to automatically install security and package patches daily,
+    # clean up unused dependencies, and auto-reboot at 03:00 AM if required by updates.
+    cat <<'EOF' > /etc/apt/apt.conf.d/50unattended-upgrades
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}-security";
+    "${distro_id}:${distro_codename}-updates";
+    "${distro_id}:${distro_codename}";
+    "origin=Docker,archive=stable";
+};
+
+// Automatically reboot the system if a reboot is needed
+Unattended-Upgrade::Automatic-Reboot "true";
+
+// Reboot at a specific safe time (e.g. 3:00 AM)
+Unattended-Upgrade::Automatic-Reboot-Time "03:00";
+
+// Clean up unused dependencies after upgrading
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+
+// Do not install on shutdown, install immediately
+Unattended-Upgrade::InstallOnShutdown "false";
+EOF
+
+    # Configure periodic upgrades (Weekly check, upgrade, and cache clean every 7 days)
+    cat <<'EOF' > /etc/apt/apt.conf.d/20auto-upgrades
+APT::Periodic::Update-Package-Lists "7";
+APT::Periodic::Download-Upgradeable-Packages "7";
+APT::Periodic::AutocleanInterval "7";
+APT::Periodic::Unattended-Upgrade "7";
+EOF
     
     # Kernel Hardening: Protecting the network stack via sysctl tweaks.
     # Includes protections against Smurf attacks, IP spoofing, and SYN floods.
@@ -256,8 +363,166 @@ EOF
     echo "*****************************************************************" >> /etc/issue.net
     sed -i "s|#Banner none|Banner /etc/issue.net|" /etc/ssh/sshd_config
     
+    # Secure shared memory and temp directories (noexec, nosuid, nodev)
+    echo "🔒 Securing /tmp and /dev/shm with secure mount options..."
+    if ! grep -q "tmpfs /tmp" /etc/fstab; then
+        echo "tmpfs /tmp tmpfs defaults,noexec,nosuid,nodev 0 0" >> /etc/fstab
+    fi
+    chmod 1777 /tmp /var/tmp /dev/shm || true
+
+    # Disable compiler execution for unprivileged/non-root users to block local exploit compilation
+    echo "🛡️ Locking down compiler executables..."
+    COMPILERS=(
+        /usr/bin/as
+        /usr/bin/byacc
+        /usr/bin/yacc
+        /usr/bin/bcc
+        /usr/bin/kgcc
+        /usr/bin/cc
+        /usr/bin/gcc
+        /usr/bin/g++
+        /usr/bin/make
+        /usr/bin/clang
+    )
+    for compiler in "${COMPILERS[@]}"; do
+        if [ -f "$compiler" ]; then
+            chmod 700 "$compiler" || true
+        fi
+    done
+
+    # Disable unused legacy network protocols at the kernel level
+    echo "🧠 Hardening kernel modules (disabling sctp, dccp, rds, tipc)..."
+    cat <<EOF > /etc/modprobe.d/security-hardening.conf
+install dccp /bin/true
+install sctp /bin/true
+install rds /bin/true
+install tipc /bin/true
+EOF
+
     echo "✅ Security extras configured."
 fi
+
+# 12. Slim down the OS (Remove non-essential packages & services)
+# Since this is a dedicated Docker host, we remove unnecessary native services 
+# (like mail transfer agents, printing, and snapd) to free up memory and minimize attack surface.
+echo "🧹 Slimming down the OS and removing non-essential packages..."
+
+UNNECESSARY_PACKAGES=(
+    exim4
+    exim4-base
+    exim4-config
+    rpcbind
+    avahi-daemon
+    cups
+    cups-daemon
+    snapd
+    cron
+)
+
+# Make sure cron is installed and active for our scheduled tasks
+if ! dpkg -l | grep -q "^ii  cron "; then
+    echo "🕒 Installing cron for scheduled cleanups..."
+    apt-get install -y cron || true
+fi
+systemctl enable cron || true
+systemctl start cron || true
+
+for pkg in "${UNNECESSARY_PACKAGES[@]}"; do
+    # Do not purge cron since we need it for our cron jobs
+    if [ "$pkg" = "cron" ]; then continue; fi
+    if dpkg -l | grep -q "^ii  $pkg "; then
+        echo "🗑️ Removing package and configuration: $pkg..."
+        apt-get purge -y "$pkg" || true
+    fi
+done
+
+# Clean up snap directories if snapd was removed
+if [ ! -d /snap ]; then
+    rm -rf /snap /var/snap /var/lib/snapd || true
+fi
+
+# Autoremove and clean package cache with purge to free disk space
+apt-get autoremove --purge -y
+apt-get clean -y
+
+# System log optimization: Cap systemd-journald logs to 100M max to prevent disk saturation
+echo "🧹 Limiting system log (Journald) size to 100M max..."
+sed -i 's/#SystemMaxUse=/SystemMaxUse=100M/' /etc/systemd/journald.conf
+sed -i 's/SystemMaxUse=.*/SystemMaxUse=100M/' /etc/systemd/journald.conf
+systemctl restart systemd-journald || true
+
+echo "✅ OS slimmed down successfully."
+
+# 13. Schedule Weekly Docker Cleanup & Self-Cleaning Firewall (Cron Jobs)
+# To prevent old, cached, and dangling Docker images from filling up your VPS SSD,
+# and to clean up allowed ports that are no longer bound to any active containers:
+echo "🕒 Creating self-cleaning firewall utility (/usr/local/bin/ufw-cleanup.sh)..."
+
+cat <<EOF > /usr/local/bin/ufw-cleanup.sh
+#!/bin/bash
+# /usr/local/bin/ufw-cleanup.sh
+# Automatically purges UFW rules for ports that have no active listening process/Docker container.
+
+# Whitelist: Critical ports that should NEVER be closed automatically
+WHITELIST=("22" "$SSH_PORT" "80" "443")
+
+echo "🔍 Starting weekly UFW firewall port audit..."
+
+# Get all allowed ports from UFW
+UFW_PORTS=\$(ufw status | grep -E 'ALLOW|LIMIT|ALLOW IN|LIMIT IN' | awk '{print \$1}' | grep -oE '^[0-9]+' | sort -u)
+
+# Get all currently active listening ports on the host
+ACTIVE_PORTS=\$(ss -tulpn | awk '{print \$5}' | grep -oE ':[0-9]+$' | cut -d: -f2 | sort -u)
+
+for port in \$UFW_PORTS; do
+    # Check if port is whitelisted
+    is_whitelisted=false
+    for white in "\${WHITELIST[@]}"; do
+        if [ "\$port" = "\$white" ]; then
+            is_whitelisted=true
+            break
+        fi
+    done
+    
+    if [ "\$is_whitelisted" = true ]; then
+        continue
+    fi
+    
+    # Check if port is active
+    is_active=false
+    for active in \$ACTIVE_PORTS; do
+        if [ "\$port" = "\$active" ]; then
+            is_active=true
+            break
+        fi
+    done
+    
+    if [ "\$is_active" = false ]; then
+        echo "🗑️ Port \$port is allowed in UFW but has no active listening service. Closing port..."
+        ufw delete allow "\$port" || true
+        ufw delete allow "\$port/tcp" || true
+        ufw delete allow "\$port/udp" || true
+        ufw delete limit "\$port" || true
+        ufw delete limit "\$port/tcp" || true
+        ufw delete limit "\$port/udp" || true
+    fi
+done
+
+# Reload firewall to apply cleanups
+ufw reload
+echo "✅ Firewall audit complete."
+EOF
+
+chmod +x /usr/local/bin/ufw-cleanup.sh
+echo "✅ Self-cleaning firewall utility configured."
+
+echo "🕒 Scheduling weekly cron jobs (Docker cleanup & Firewall audit)..."
+(
+  crontab -l 2>/dev/null | grep -v -E "docker system prune|docker image prune|ufw-cleanup.sh" || true
+  echo "0 3 * * 0 docker system prune -af >/dev/null 2>&1"
+  echo "0 4 * * 0 /usr/local/bin/ufw-cleanup.sh >/dev/null 2>&1"
+) | crontab -
+echo "✅ Scheduled maintenance tasks successfully configured."
 
 echo "🏁 Setup Complete!"
 echo "--------------------------------------------------"

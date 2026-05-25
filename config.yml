@@ -1,0 +1,5 @@
+# config.yml: System credentials and settings for VPS bootstrap
+# Update with your actual credentials before running setup.sh.
+username: "username"
+ssh_public_key: "ssh-ed25519 AAAA... user@example.com"
+timezone: "Asia/Kathmandu" # e.g., "UTC", "Asia/Kathmandu", etc. (Default: UTC)
