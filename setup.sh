@@ -89,7 +89,7 @@ echo "✅ Configuration successfully loaded from $(basename "$CONFIG_FILE")."
 # 'openssh-server' to manage remote access.
 echo "📦 Updating package registry and installing essentials..."
 apt-get update -y
-apt-get install -y sudo curl git gnupg ca-certificates openssh-server ufw bash-completion
+DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::="--force-confold" sudo curl git gnupg ca-certificates openssh-server ufw bash-completion
 
 # 2. Create the Service User (Passwordless/SSH-Only)
 # We use -m to create a home directory and -s to set Bash as the default shell.
@@ -203,7 +203,7 @@ echo \
   tee /etc/apt/sources.list.d/docker.list > /dev/null
 
 apt-get update
-apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::="--force-confold" docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Configure Global Docker Log Rotation
 # This prevents Docker containers from filling up your disk with massive log files.
@@ -295,7 +295,7 @@ echo "✅ Infrastructure and performance parameters optimized."
 # This includes Fail2Ban for auto-banning and Unattended-Upgrades for security patches.
 if [ "$ENABLE_SECURITY_EXTRAS" = true ]; then
     echo "🛡️ Setting up Fail2Ban & Automated Security Updates..."
-    apt-get install -y fail2ban unattended-upgrades
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::="--force-confold" fail2ban unattended-upgrades
     
     # Configure Fail2Ban to monitor SSH and ban aggressive IPs for 1 hour.
     cat <<EOF > /etc/fail2ban/jail.local
@@ -422,7 +422,7 @@ UNNECESSARY_PACKAGES=(
 # Make sure cron is installed and active for our scheduled tasks
 if ! dpkg -l | grep -q "^ii  cron "; then
     echo "🕒 Installing cron for scheduled cleanups..."
-    apt-get install -y cron || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::="--force-confold" cron || true
 fi
 systemctl enable cron || true
 systemctl start cron || true
