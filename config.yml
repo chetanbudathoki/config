@@ -1,0 +1,35 @@
+# config.yml: System credentials and settings for VPS bootstrap
+# Update with your actual credentials before running setup.sh.
+username: "username"
+
+# SSH Public Keys: Paste a single key string, or use '|' for multiple keys (one per line)
+ssh_public_key: |
+  ssh-ed25519 AAAA... user1@example.com
+  ssh-ed25519 BBBB... user2@example.com
+
+timezone: "Asia/Kathmandu" # e.g., "UTC", "Asia/Kathmandu", etc. (Default: UTC)
+
+# 🚀 Nginx Proxy Manager Setup & Ports
+# (Configured and deployed independently via ./nginx.sh)
+nginx:
+  ports:
+    http: 80             # Standard HTTP traffic
+    https: 443           # Secure HTTPS traffic
+    admin: 81            # Nginx Proxy Manager Admin Console
+  credentials:
+    email: "admin@example.com"
+    password: "changeme"
+
+
+# ==========================================
+# 🗄️ Automated Weekly Backup (Cloudflare R2 / S3 Compatible)
+# Automatically runs weekly if 'nginx.enabled: true' and keys are provided below.
+# ==========================================
+backup:
+  bucket: "your-bucket-name"                        # e.g., "snap", "my-backups"
+  endpoint: "https://<account_id>.r2.cloudflarestorage.com" # Your S3/R2 API endpoint URL
+  access_key_id: "your_access_key_id"               # S3 / R2 Access Key ID
+  secret_access_key: "your_secret_access_key"       # S3 / R2 Secret Access Key
+  retention_days: 30
+
+
